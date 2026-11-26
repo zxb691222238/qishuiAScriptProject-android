@@ -9,7 +9,9 @@ import java.util.regex.Pattern;
 /** Pure decision engine: only a verified page transition confirms a UI round. */
 public final class FlowEngine {
     public static final String TARGET = "com.luna.music";
-    public static final double[] TOP = {.45, .015, 1, .23}, MIDDLE = {.07, .23, .93, .76}, LIVE = {.05, .40, .95, .88};
+    public static final double[] TOP = {.45, .015, 1, .23}, MIDDLE = {.07, .23, .93, .76}, LIVE = {.05, .40, .95, .88}; 
+    public static final double[] BOTTOM_NAV = {0, .85, 1, 1}, TOP_BAR = {0, .01, 1, .20};
+    static final String REWARD_BTN = "^(?:领取奖励|立即领取|确认领取|开心收下|再看一个|再看1个|继续看视频|去看看)$";
     static final String COUNTDOWN = "\\d+秒(?:后)?(?:可)?(?:领取|领|获得|获取|关闭)";
     static final String COMPLETE = "^(?:领取成功|奖励已领取|奖励已到账|已获得奖励)[×xX✕✖]?$";
     static final String CLOSE = "^(?:关闭|×|✕|✖|x|X)$";
@@ -20,7 +22,7 @@ public final class FlowEngine {
     }
     /** Known labels sometimes include accessibility action/role annotations. */
     public static String accessibilityLabel(String raw) {
-        Matcher label = Pattern.compile("^(领取成功|奖励已领取|奖励已到账|已获得奖励|关闭|关注|更多直播|说点什么|领取奖励|立即领取|确认领取|继续观看)(?:,关闭)?,(?:按钮|输入框)$").matcher(compact(raw));
+        Matcher label = Pattern.compile("^(领取成功|奖励已领取|奖励已到账|已获得奖励|关闭|关注|更多直播|说点什么|领取奖励|立即领取|确认领取|继续观看|开心收下|再看一个|继续看视频)(?:,关闭)?,(?:按钮|输入框)$").matcher(compact(raw));
         return label.matches() ? label.group(1) : raw;
     }
     public static final class Settings {
@@ -116,11 +118,27 @@ public final class FlowEngine {
         if (markers < 2) return null;
         Token close = s.find("^(?:退出直播间|关闭直播间|关闭|×|✕|✖|[1lI|]?[xX])$", new double[]{.82, .015, 1, .14});
         return close == null ? null : close.renamed("退出直播间");
+    } 
+    public static boolean isHomePage(Screen s) {
+        if (s.width <= 0 || s.height <= 0) return false;
+        int hits = 0;
+        if (s.has("^发现$", BOTTOM_NAV)) hits++;
+        if (s.has("^音乐$", BOTTOM_NAV)) hits++;
+        if (s.has("^我的$", BOTTOM_NAV)) hits++;
+        if (s.has("模式探索", TOP_BAR)) hits++;
+        return hits >= 2;
+    }
+    public static Token findHomeEntry(Screen s) {
+        if (!isHomePage(s)) return null;
+        Token explicit = s.find("^(?:免|免费听|看视频免费听)$", new double[]{.70, .01, 1, .20});
+        if (explicit != null) return explicit.renamed("免");
+        double cx = s.width * 0.937, cy = s.height * 0.063;
+        return new Token("免", cx - 24, cy - 24, cx + 24, cy + 24);
     }
     public final Settings settings;
     public String phase = "WAIT_AD", stopReason = "";
     public int rounds, liveExitAttempts, clickFailures;
-    private double phaseSince, lastClick = -100, lastCancel = -100, lastExit = -100;
+    private double phaseSince, lastClick = -100, lastCancel = -100, lastExit = -100, lastMian = -100;
     private boolean returnPending;
     public FlowEngine(Settings settings) { this.settings = settings; }
     private void phase(String p, double now) { phase = p; phaseSince = now; }
@@ -146,7 +164,7 @@ public final class FlowEngine {
             return Decision.tap("退出直播间，返回广告", exit, "exit_live");
         }
         boolean countdown = s.has(COUNTDOWN, TOP);
-        Token complete = s.find(COMPLETE, TOP), reward = s.find("^(?:领取奖励|立即领取|确认领取)$", MIDDLE);
+        Token complete = s.find(COMPLETE, TOP), reward = s.find(REWARD_BTN, MIDDLE);
         if (now - lastClick < 1.3) return Decision.waitFor("等待页面响应");
         if (returnPending && (countdown || complete != null || reward != null)) {
             returnPending = false; liveExitAttempts = 0;
@@ -170,6 +188,20 @@ public final class FlowEngine {
         if (complete != null) {
             Token close = s.find(CLOSE, TOP);
             return Decision.tap("广告显示完成，关闭完成页", close == null ? complete : close, "complete");
+        } 
+        if (phase.equals("WAIT_AD") && !countdown && complete == null && reward == null) {
+            Token mian = findHomeEntry(s);
+            if (mian != null) {
+                return now - lastMian < 4.0
+                        ? Decision.waitFor("已点击「免」字，等待广告加载")
+                    : Decision.tap("自动点击首页「免」字进入广告", mian, "open_mian");
+            }
+        }
+        if ((phase.equals("WATCHING") || phase.equals("VERIFY")) && !countdown && complete == null && reward == null && !isHomePage(s)) {
+            Token landingClose = s.find(CLOSE, TOP);
+            if (landingClose != null && s.has("立即下载|立即体验|开通会员|续费会员|立即开通|免费试用|下载体验", MIDDLE)) {
+                return Decision.tap("关闭广告/会员落地页", landingClose, "close_landing");
+            }
         }
         Token resume = s.find("^继续观看$", MIDDLE);
         if (phase.equals("WATCHING") && resume != null && s.has("放弃奖励|坚持退出|还差|继续观看.*(?:奖励|秒)", MIDDLE)) return Decision.tap("恢复尚未完成的广告", resume, "resume");
@@ -179,11 +211,13 @@ public final class FlowEngine {
     public void actionResult(Decision d, boolean ok, double now) {
         if (!d.kind.equals("tap")) return;
         lastClick = now;
-        if (d.key.equals("cancel_live")) lastCancel = now;
+        if (d.key.equals("cancel_live")) lastCancel = now; 
+        if (d.key.equals("open_mian")) lastMian = now;
         if (d.key.equals("exit_live")) { lastExit = now; liveExitAttempts++; }
         if (!ok) { if (++clickFailures >= 3) stop("连续三次点击失败，请检查无障碍服务"); return; }
         clickFailures = 0;
-        if (d.key.equals("cancel_live")) return;
+        if (d.key.equals("cancel_live")) return; 
+        if (d.key.equals("open_mian") || d.key.equals("close_landing")) return;
         if (d.key.equals("exit_live")) { returnPending = true; return; }
         switch (d.key) {
             case "complete": phase("WAIT_REWARD", now); break;
