@@ -128,17 +128,10 @@ public final class FlowEngine {
         if (s.has("模式探索", TOP_BAR)) hits++;
         return hits >= 2;
     }
-    public static Token findHomeEntry(Screen s) {
-        if (!isHomePage(s)) return null;
-        Token explicit = s.find("^(?:免|免费听|看视频免费听)$", new double[]{.70, .01, 1, .20});
-        if (explicit != null) return explicit.renamed("免");
-        double cx = s.width * 0.937, cy = s.height * 0.063;
-        return new Token("免", cx - 24, cy - 24, cx + 24, cy + 24);
-    }
     public final Settings settings;
     public String phase = "WAIT_AD", stopReason = "";
     public int rounds, liveExitAttempts, clickFailures;
-    private double phaseSince, lastClick = -100, lastCancel = -100, lastExit = -100, lastMian = -100;
+    private double phaseSince, lastClick = -100, lastCancel = -100, lastExit = -100;
     private boolean returnPending;
     public FlowEngine(Settings settings) { this.settings = settings; }
     private void phase(String p, double now) { phase = p; phaseSince = now; }
@@ -189,14 +182,6 @@ public final class FlowEngine {
             Token close = s.find(CLOSE, TOP);
             return Decision.tap("广告显示完成，关闭完成页", close == null ? complete : close, "complete");
         } 
-        if (phase.equals("WAIT_AD") && !countdown && complete == null && reward == null) {
-            Token mian = findHomeEntry(s);
-            if (mian != null) {
-                return now - lastMian < 4.0
-                        ? Decision.waitFor("已点击「免」字，等待广告加载")
-                    : Decision.tap("自动点击首页「免」字进入广告", mian, "open_mian");
-            }
-        }
         if ((phase.equals("WATCHING") || phase.equals("VERIFY")) && !countdown && complete == null && reward == null && !isHomePage(s)) {
             Token landingClose = s.find(CLOSE, TOP);
             if (landingClose != null && s.has("立即下载|立即体验|开通会员|续费会员|立即开通|免费试用|下载体验", MIDDLE)) {
@@ -212,12 +197,11 @@ public final class FlowEngine {
         if (!d.kind.equals("tap")) return;
         lastClick = now;
         if (d.key.equals("cancel_live")) lastCancel = now; 
-        if (d.key.equals("open_mian")) lastMian = now;
         if (d.key.equals("exit_live")) { lastExit = now; liveExitAttempts++; }
         if (!ok) { if (++clickFailures >= 3) stop("连续三次点击失败，请检查无障碍服务"); return; }
         clickFailures = 0;
         if (d.key.equals("cancel_live")) return; 
-        if (d.key.equals("open_mian") || d.key.equals("close_landing")) return;
+        if (d.key.equals("close_landing")) return;
         if (d.key.equals("exit_live")) { returnPending = true; return; }
         switch (d.key) {
             case "complete": phase("WAIT_REWARD", now); break;
