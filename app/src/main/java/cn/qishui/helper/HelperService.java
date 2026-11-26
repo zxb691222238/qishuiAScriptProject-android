@@ -61,6 +61,7 @@ public final class HelperService extends AccessibilityService {
     private FlowEngine engine;
     private boolean active, busy, targetSeen;
     private long generation, activeSince, elapsedSaved, lastScan, lastCapture, captureFailures;
+    private long lastBringBack; private int bringBackAttempts;
     private String status = "待开始", message = "无障碍服务已就绪，请进入第一条奖励广告", lastPublished = "";
     private Bitmap evidence;
     private int lastWidth, lastHeight;
@@ -82,8 +83,9 @@ public final class HelperService extends AccessibilityService {
     public boolean isActive() { return active; }
     public void startTask(FlowEngine.Settings settings) {
         AppData.save(this, settings); closeMenu(); generation++; active = true; busy = false;
-        engine = new FlowEngine(settings); elapsedSaved = 0; activeSince = SystemClock.elapsedRealtime(); targetSeen = false;
+        engine = new FlowEngine(settings); elapsedSaved = 0; activeSince = SystemClock.elapsedRealtime(); targetSeen = false; bringBackAttempts = 0; lastBringBack = 0;
         publish("请进入第一条奖励广告，点悬浮按钮可暂停", settings.dryRun ? "仅识别" : "运行中");
+        if (!FlowEngine.TARGET.equals(foreground())) bringTargetToFront();
     }
     public void pause(String reason) {
         if (active) elapsedSaved += SystemClock.elapsedRealtime() - activeSince;
@@ -113,6 +115,23 @@ public final class HelperService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return "";
         return root.getPackageName() == null ? "" : root.getPackageName().toString();
+    }
+    private boolean isUserExitPackage(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return true;
+        if (pkg.equals(getPackageName())) return true;
+        String lower = pkg.toLowerCase();
+        return lower.contains("launcher") || lower.equals("com.android.systemui");
+    }
+    private boolean bringTargetToFront() {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(FlowEngine.TARGET);
+            if (launch == null) return false;
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(launch);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
     private FlowEngine.Screen nativeScreen() {
         Rect display = wm.getCurrentWindowMetrics().getBounds();
@@ -146,10 +165,23 @@ public final class HelperService extends AccessibilityService {
         FlowEngine.Screen nativeResult = nativeScreen();
         if (!FlowEngine.TARGET.equals(nativeResult.packageName)) {
             if (!targetSeen && SystemClock.elapsedRealtime() - activeSince < 30000) return;
+            if (targetSeen && engine != null && !engine.settings.dryRun
+                && !isUserExitPackage(nativeResult.packageName) && bringBackAttempts < 5) {
+                long nowMs = SystemClock.elapsedRealtime();
+                if (nowMs - lastBringBack >= 2500) {
+                    lastBringBack = nowMs;
+                    bringBackAttempts++;
+                    bringTargetToFront();
+                    publish("检测到跳转外部应用，自动拉回汽水音乐（" + bringBackAttempts + "/5）", "运行中");
+                }
+                return;
+            }
             pause("已离开汽水音乐，请返回广告后继续"); return;
         }
+        bringBackAttempts = 0;
         targetSeen = true;
         if (FlowEngine.findLiveCancel(nativeResult) != null || FlowEngine.findLiveExit(nativeResult) != null
+            || FlowEngine.findHomeEntry(nativeResult) != null
             || nativeResult.find(FlowEngine.COMPLETE, FlowEngine.TOP) != null) { process(nativeResult); return; }
         if (elapsed() >= engine.settings.maxMinutes * 60) { engine.stop("达到运行时间上限"); finish("达到运行时间上限"); return; }
         if (SystemClock.elapsedRealtime() - lastCapture < 550) return;
@@ -190,7 +222,9 @@ public final class HelperService extends AccessibilityService {
         if (!valid(expected) || !active || !screenOn() || !FlowEngine.TARGET.equals(foreground())) { busy = false; return; }
         Rect size = wm.getCurrentWindowMetrics().getBounds();
         if (target == null || target.x < 0 || target.y < 0 || target.x >= size.width() || target.y >= size.height()) { busy = false; return; }
-        Path path = new Path(); path.moveTo((float) target.x, (float) target.y);
+           float tx = (float) Math.max(1, Math.min(size.width() - 2, target.x + (Math.random() - 0.5) * 8.0));
+        float ty = (float) Math.max(1, Math.min(size.height() - 2, target.y + (Math.random() - 0.5) * 8.0));
+        Path path = new Path(); path.moveTo(tx, ty);
         GestureDescription gesture = new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, 75)).build();
         GestureResultCallback callback = new GestureResultCallback() {
             private boolean finished;
