@@ -85,8 +85,7 @@ public final class HelperService extends AccessibilityService {
         AppData.save(this, settings); closeMenu(); generation++; active = true; busy = false;
         engine = new FlowEngine(settings); elapsedSaved = 0; activeSince = SystemClock.elapsedRealtime(); targetSeen = false; bringBackAttempts = 0; lastBringBack = 0;
         publish("请进入第一条奖励广告，点悬浮按钮可暂停", settings.dryRun ? "仅识别" : "运行中");
-        if (!FlowEngine.TARGET.equals(foreground())) bringTargetToFront();
-    }
+        }
     public void pause(String reason) {
         if (active) elapsedSaved += SystemClock.elapsedRealtime() - activeSince;
         active = false; generation++; busy = false; restoreBubble(); publish(reason, "已暂停");
@@ -181,7 +180,6 @@ public final class HelperService extends AccessibilityService {
         bringBackAttempts = 0;
         targetSeen = true;
         if (FlowEngine.findLiveCancel(nativeResult) != null || FlowEngine.findLiveExit(nativeResult) != null
-            || FlowEngine.findHomeEntry(nativeResult) != null
             || nativeResult.find(FlowEngine.COMPLETE, FlowEngine.TOP) != null) { process(nativeResult); return; }
         if (elapsed() >= engine.settings.maxMinutes * 60) { engine.stop("达到运行时间上限"); finish("达到运行时间上限"); return; }
         if (SystemClock.elapsedRealtime() - lastCapture < 550) return;
