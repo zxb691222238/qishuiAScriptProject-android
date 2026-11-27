@@ -128,13 +128,37 @@ public final class FlowEngine {
         if (s.has("模式探索", TOP_BAR)) hits++;
         return hits >= 2;
     }
+    public static Token findTopRightClose(Screen s) {
+        if (s.width <= 0 || s.height <= 0) return null;
+Pattern pattern = Pattern.compile(CLOSE);
+Token best = null;
+double rowTol = Math.max(8, s.height * 0.007);
+for (Token t : s.tokens) {
+if (!t.inside(s, TOP) || !pattern.matcher(compact(t.text)).find()) continue;
+if (best == null) best = t;
+else if (Math.abs(t.y - best.y) > rowTol) { if (t.y < best.y) best = t; }
+else if (t.x > best.x) best = t;
+}
+return best;
+    }public static Token completionTarget(Screen s, Token complete) {
+        Token close = findTopRightClose(s);
+        if (close != null) return close;
+        if (complete != null && compact(complete.text).matches(".*[×xX✕✖]$") && complete.right > complete.left) {
+            double left = complete.right - (complete.right - complete.left) * 0.18;
+            return new Token(complete.text, left, complete.top, complete.right, complete.bottom);
+        }
+        return complete;
+    }
+    
     public final Settings settings;
     public String phase = "WAIT_AD", stopReason = "";
     public int rounds, liveExitAttempts, clickFailures;
     private double phaseSince, lastClick = -100, lastCancel = -100, lastExit = -100;
     private boolean returnPending;
+    private int completeRetries;
+    private double loadingSince = -100;
     public FlowEngine(Settings settings) { this.settings = settings; }
-    private void phase(String p, double now) { phase = p; phaseSince = now; }
+    private void phase(String p, double now) { phase = p; phaseSince = now; if (!p.equals("WAIT_REWARD")) completeRetries = 0; ; }
     public Decision stop(String reason) { phase = "STOPPED"; stopReason = reason; return new Decision("stop", reason, null, ""); }
     private Decision confirmed(double now) {
         rounds++;
@@ -163,8 +187,8 @@ public final class FlowEngine {
             returnPending = false; liveExitAttempts = 0;
             if (phase.equals("VERIFY") && (countdown || complete != null)) return confirmed(now);
             if (phase.equals("WAIT_REWARD") && complete != null && reward == null) {
-                Token close = s.find(CLOSE, TOP);
-                return Decision.tap("已返回完成的广告，继续领奖", close == null ? complete : close, "complete");
+             //    Token close = s.find(CLOSE, TOP);
+             return Decision.tap("已返回完成的广告，继续领奖", completionTarget(s, complete), "complete"); //    return Decision.tap("已返回完成的广告，继续领奖", close == null ? complete : close, "complete");
             }
         }
         if (phase.equals("VERIFY") || phase.equals("WAIT_REWARD")) {
@@ -172,18 +196,31 @@ public final class FlowEngine {
             if (now - phaseSince > 45) return stop("点击后未确认页面变化，请检查当前页面");
         }
         if (phase.equals("VERIFY")) return Decision.waitFor("正在确认领奖后的页面变化");
-        if (phase.equals("WAIT_REWARD")) return reward != null ? Decision.tap("点击领取奖励", reward, "reward") : Decision.waitFor("等待奖励弹窗");
+      if (s.has("数据加载中|加载中", MIDDLE)) {
+            if (loadingSince < 0) loadingSince = now;
+            if (now - loadingSince < 12) return Decision.waitFor("页面加载中，等待遮罩消失");
+        } else {
+            loadingSince = -100;
+        }
+        if (phase.equals("WAIT_REWARD")) {
+            if (reward != null) return Decision.tap("点击领取奖励", reward, "reward");
+            if (complete != null && completeRetries < 3 && now - lastClick >= 3.5) {
+                return Decision.tap("重试关闭广告完成页", completionTarget(s, complete), "complete");
+            }
+            return Decision.waitFor("等待奖励弹窗");
+        }
+        //   if (phase.equals("WAIT_REWARD")) return reward != null ? Decision.tap("点击领取奖励", reward, "reward") : Decision.waitFor("等待奖励弹窗");
         if (countdown) {
             if (!phase.equals("WATCHING")) phase("WATCHING", now);
             if (now - phaseSince > 150) return stop("广告等待超时，请检查当前页面");
             return Decision.waitFor("广告倒计时中，等待正常播放完成");
         }
         if (complete != null) {
-            Token close = s.find(CLOSE, TOP);
-            return Decision.tap("广告显示完成，关闭完成页", close == null ? complete : close, "complete");
+         //    Token close = s.find(CLOSE, TOP);
+         return Decision.tap("广告显示完成，关闭完成页", completionTarget(s, complete), "complete"); //    return Decision.tap("广告显示完成，关闭完成页", close == null ? complete : close, "complete");
         } 
         if ((phase.equals("WATCHING") || phase.equals("VERIFY")) && !countdown && complete == null && reward == null && !isHomePage(s)) {
-            Token landingClose = s.find(CLOSE, TOP);
+         Token landingClose = findTopRightClose(s); //    Token landingClose = s.find(CLOSE, TOP);
             if (landingClose != null && s.has("立即下载|立即体验|开通会员|续费会员|立即开通|免费试用|下载体验", MIDDLE)) {
                 return Decision.tap("关闭广告/会员落地页", landingClose, "close_landing");
             }
@@ -204,7 +241,7 @@ public final class FlowEngine {
         if (d.key.equals("close_landing")) return;
         if (d.key.equals("exit_live")) { returnPending = true; return; }
         switch (d.key) {
-            case "complete": phase("WAIT_REWARD", now); break;
+         case "complete": if (phase.equals("WAIT_REWARD")) completeRetries++; else { phase("WAIT_REWARD", now); completeRetries = 0; } break; //    case "complete": phase("WAIT_REWARD", now); break;
             case "reward": phase("VERIFY", now); break;
             default: phase("WATCHING", now);
         }
