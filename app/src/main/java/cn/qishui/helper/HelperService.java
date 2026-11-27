@@ -179,8 +179,11 @@ public final class HelperService extends AccessibilityService {
         }
         bringBackAttempts = 0;
         targetSeen = true;
+        boolean nativeComplete = nativeResult.findFirst(FlowEngine.COMPLETE, FlowEngine.TOP) != null;
+        boolean nativeReward = nativeResult.findFirst(FlowEngine.REWARD_BTN, FlowEngine.MIDDLE) != null;
+
         if (FlowEngine.findLiveCancel(nativeResult) != null || FlowEngine.findLiveExit(nativeResult) != null
-            || nativeResult.find(FlowEngine.COMPLETE, FlowEngine.TOP) != null) { process(nativeResult); return; }
+            || nativeReward || (nativeComplete && !engine.phase.equals("WAIT_REWARD"))) { process(nativeResult); return; }
         if (elapsed() >= engine.settings.maxMinutes * 60) { engine.stop("达到运行时间上限"); finish("达到运行时间上限"); return; }
         if (SystemClock.elapsedRealtime() - lastCapture < 550) return;
         busy = true;
@@ -307,7 +310,7 @@ gesture(decision, target != null ? target : decision.target, expected);
                 addOcr(tokens, line.getText(), line.getBoundingBox(), crop, sx, sy);
                 for (Text.Element element : line.getElements()) {
                     String value = FlowEngine.compact(element.getText());
-                    if (value.matches("取消|取消跳转|暂不进入|关闭|[×xX✕✖]|领取奖励|立即领取|确认领取|点击使用|立即使用|去使用")) addOcr(tokens, value, element.getBoundingBox(), crop, sx, sy);
+                    if (value.matches("取消|取消跳转|暂不进入|关闭|[×xX✕✖]|领取成功|奖励已领取|奖励已到账|已获得奖励|领取奖励|立即领取|确认领取|点击使用|立即使用|去使用")) addOcr(tokens, value, element.getBoundingBox(), crop, sx, sy);
                 }
             }
             completion.accept(new FlowEngine.Screen(original.getWidth(), original.getHeight(), nativeResult.packageName, tokens));
