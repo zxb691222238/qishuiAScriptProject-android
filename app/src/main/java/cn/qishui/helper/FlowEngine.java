@@ -9,13 +9,13 @@ import java.util.regex.Pattern;
 /** Pure decision engine: only a verified page transition confirms a UI round. */
 public final class FlowEngine {
     public static final String TARGET = "com.luna.music";
-    public static final double[] TOP = {.45, .015, 1, .23}, MIDDLE = {.07, .23, .93, .76}, LIVE = {.05, .40, .95, .88}; 
+    public static final double[] TOP = {.45, .015, 1, .23}, MIDDLE = {.07, .23, .93, .76}, LIVE = {.02, .30, .98, .96}; 
     public static final double[] BOTTOM_NAV = {0, .85, 1, 1}, TOP_BAR = {0, .01, 1, .20};
     static final String REWARD_BTN = "^(?:领取奖励|立即领取|确认领取|开心收下|再看一个|再看1个|继续看视频|去看看)$";
     static final String COUNTDOWN = "\\d+秒(?:后)?(?:可)?(?:领取|领|获得|获取|关闭)";
     static final String COMPLETE = "^(?:领取成功|奖励已领取|奖励已到账|已获得奖励)[×xX✕✖]?$";
     static final String CLOSE = "^(?:关闭|×|✕|✖|x|X)$";
-    static final Pattern LIVE_PROMPT = Pattern.compile("(?:(?:\\d{1,3}|[一二三四五六七八九十几]+)(?:秒|[sS])后(?:将|自动)?|即将(?:自动)?)(?:进入|前往|跳转(?:到|至)?)直播[间間]");
+    static final Pattern LIVE_PROMPT = Pattern.compile("(?:(?:\\d{1,3}|[一二三四五六七八九十几]+)(?:秒|[sS])(?:后)?(?:将|自动)?|(?:即将|正在|自动)(?:自动)?)(?:进入|前往|跳转(?:到|至)?)直播[间間]");
 
     public static String compact(String s) {
         return Normalizer.normalize(s == null ? "" : s, Normalizer.Form.NFKC).replaceAll("[\\s\\u00a0]+", "");
@@ -88,13 +88,13 @@ public final class FlowEngine {
             boolean separate = false;
             for (Token t : s.tokens) {
                 double gap = t.left - anchor.right;
-                if (t.inside(s, LIVE) && compact(t.text).equals("取消") && t.x > anchor.x
-                    && gap >= -s.width * .04 && gap <= s.width * .28
-                    && Math.abs(t.y - anchor.y) <= Math.max(s.height * .025, anchor.bottom - anchor.top)) {
+                if (t.inside(s, LIVE) && compact(t.text).matches("^[|丨:：·•—\\-]*(?:取消|取消跳转|暂不进入|点击取消)[!。]?$") && t.x > anchor.x
+                    && gap >= -s.width * .04 && gap <= s.width * .55
+                    && Math.abs(t.y - anchor.y) <= Math.max(s.height * .035, (anchor.bottom - anchor.top) * 1.4)) {
                     candidates.add(t); separate = true;
                 }
             }
-            if (separate || !text.substring(match.end()).matches("[|丨:：·•—\\-]*取消[!。]?")) continue;
+            if (separate || !text.substring(match.end()).matches("[|丨:：·•—\\-]*(?:取消|取消跳转|暂不进入|点击取消)[!。]?")) continue;
             if (anchor.bottom <= anchor.top || anchor.bottom - anchor.top > s.height * .075 || anchor.right <= anchor.left) continue;
             int units = 0;
             for (char c : text.toCharArray()) units += c > 255 ? 2 : 1;
@@ -149,6 +149,18 @@ return best;
         }
         return complete;
     }
+        public static Token findCouponClose(Screen s) {
+if (s.width <= 0 || s.height <= 0) return null;
+if (!s.has("恭喜获得满减券|满\\d+(?:\\.\\d+)?元可用|后过期|优惠券已放入|天降福利|购物券", MIDDLE)) return null;
+Token useBtn = s.find("^(?:点击使用|立即使用|去使用|立即抢购|去抢购)$", MIDDLE);
+if (useBtn == null) return null;
+Token close = s.find(CLOSE, new double[]{.32, .72, .68, .92});
+if (close != null) return close.renamed("关闭购物券弹窗");
+double cy = Math.min(s.height * .88, useBtn.y + s.height * .125);
+double cx = s.width * .50;
+double r = Math.max(16, s.width * .04);
+return new Token("关闭购物券弹窗", cx - r, cy - r, cx + r, cy + r);
+        }
     
     public final Settings settings;
     public String phase = "WAIT_AD", stopReason = "";
@@ -210,6 +222,8 @@ return best;
             return Decision.waitFor("等待奖励弹窗");
         }
         //   if (phase.equals("WAIT_REWARD")) return reward != null ? Decision.tap("点击领取奖励", reward, "reward") : Decision.waitFor("等待奖励弹窗");
+        Token couponClose = findCouponClose(s);
+if (couponClose != null) return Decision.tap("关闭中途购物券弹窗", couponClose, "close_coupon");
         if (countdown) {
             if (!phase.equals("WATCHING")) phase("WATCHING", now);
             if (now - phaseSince > 150) return stop("广告等待超时，请检查当前页面");
@@ -238,6 +252,7 @@ return best;
         if (!ok) { if (++clickFailures >= 3) stop("连续三次点击失败，请检查无障碍服务"); return; }
         clickFailures = 0;
         if (d.key.equals("cancel_live")) return; 
+if (d.key.equals("close_coupon")) return;
         if (d.key.equals("close_landing")) return;
         if (d.key.equals("exit_live")) { returnPending = true; return; }
         switch (d.key) {
