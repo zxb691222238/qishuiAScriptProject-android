@@ -13,7 +13,7 @@ public final class FlowEngine {
     public static final double[] BOTTOM_NAV = {0, .85, 1, 1}, TOP_BAR = {0, .01, 1, .20};
     static final String REWARD_BTN = "^(?:领取奖励|立即领取|确认领取|开心收下|再看一个|再看1个|继续看视频|去看看)$";
     static final String COUNTDOWN = "\\d+秒(?:后)?(?:可)?(?:领取|领|获得|获取|关闭)";
-    static final String COMPLETE = "^(?:\d{1,3}[sS秒][^\u4e00-\u9fa5]{0,4})?(?:领取成功|奖励已领取|奖励已到账|已获得奖励)(?:[|丨]?[×xX✕✖])?$";
+    static final String COMPLETE = "^(?:\\d{1,3}[sS秒][^\u4e00-\u9fa5]{0,4})?(?:领取成功|奖励已领取|奖励已到账|已获得奖励)(?:[|丨]?[×xX✕✖])?$";
     static final String CLOSE = "^(?:关闭|×|✕|✖|x|X)$";
     static final Pattern LIVE_PROMPT = Pattern.compile("(?:(?:\\d{1,3}|[一二三四五六七八九十几]+)(?:秒|[sS])(?:后)?(?:将|自动)?|(?:即将|正在|自动)(?:自动)?)(?:进入|前往|跳转(?:到|至)?)直播[间間]");
 
