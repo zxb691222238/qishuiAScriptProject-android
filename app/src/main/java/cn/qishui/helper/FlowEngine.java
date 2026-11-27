@@ -13,7 +13,7 @@ public final class FlowEngine {
     public static final double[] BOTTOM_NAV = {0, .85, 1, 1}, TOP_BAR = {0, .01, 1, .20};
     static final String REWARD_BTN = "^(?:领取奖励|立即领取|确认领取|开心收下|再看一个|再看1个|继续看视频|去看看)$";
     static final String COUNTDOWN = "\\d+秒(?:后)?(?:可)?(?:领取|领|获得|获取|关闭)";
-    static final String COMPLETE = "^(?:领取成功|奖励已领取|奖励已到账|已获得奖励)[×xX✕✖]?$";
+    static final String COMPLETE = "^(?:\d{1,3}[sS秒][^\u4e00-\u9fa5]{0,4})?(?:领取成功|奖励已领取|奖励已到账|已获得奖励)(?:[|丨]?[×xX✕✖])?$";
     static final String CLOSE = "^(?:关闭|×|✕|✖|x|X)$";
     static final Pattern LIVE_PROMPT = Pattern.compile("(?:(?:\\d{1,3}|[一二三四五六七八九十几]+)(?:秒|[sS])(?:后)?(?:将|自动)?|(?:即将|正在|自动)(?:自动)?)(?:进入|前往|跳转(?:到|至)?)直播[间間]");
 
@@ -64,6 +64,12 @@ public final class FlowEngine {
             }
             return hits.size() == 1 ? hits.get(0) : null;
         }
+public Token findFirst(String regex, double[] region) {
+    Pattern pattern = Pattern.compile(regex);
+    for (Token t : tokens) if (t.inside(this, region) && pattern.matcher(compact(t.text)).find()) return t;
+    return null;
+}
+
         public boolean has(String regex, double[] region) {
             Pattern pattern = Pattern.compile(regex);
             for (Token t : tokens) if (t.inside(this, region) && pattern.matcher(compact(t.text)).find()) return true;
@@ -193,7 +199,7 @@ return new Token("关闭购物券弹窗", cx - r, cy - r, cx + r, cy + r);
             return Decision.tap("退出直播间，返回广告", exit, "exit_live");
         }
         boolean countdown = s.has(COUNTDOWN, TOP);
-        Token complete = s.find(COMPLETE, TOP), reward = s.find(REWARD_BTN, MIDDLE);
+        Token complete = s.findFirst(COMPLETE, TOP), reward = s.findFirst(REWARD_BTN, MIDDLE);
         if (now - lastClick < 1.3) return Decision.waitFor("等待页面响应");
         if (returnPending && (countdown || complete != null || reward != null)) {
             returnPending = false; liveExitAttempts = 0;
@@ -235,7 +241,7 @@ if (couponClose != null) return Decision.tap("关闭中途购物券弹窗", coup
         } 
         if ((phase.equals("WATCHING") || phase.equals("VERIFY")) && !countdown && complete == null && reward == null && !isHomePage(s)) {
          Token landingClose = findTopRightClose(s); //    Token landingClose = s.find(CLOSE, TOP);
-            if (landingClose != null && s.has("立即下载|立即体验|开通会员|续费会员|立即开通|免费试用|下载体验", MIDDLE)) {
+            if (landingClose != null && s.has("立即下载|立即体验|立即打开|开通会员|续费会员|立即开通|免费试用|下载体验", MIDDLE)) {
                 return Decision.tap("关闭广告/会员落地页", landingClose, "close_landing");
             }
         }
