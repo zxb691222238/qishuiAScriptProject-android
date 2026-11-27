@@ -204,7 +204,10 @@ public final class HelperService extends AccessibilityService {
         if (engine.settings.dryRun) { publish("只识别，准备操作：" + decision.reason, "仅识别"); return; }
         busy = true;
         long expected = generation;
-        if (decision.key.equals("cancel_live") || decision.key.equals("exit_live")) {
+       if (decision.key.equals("cancel_live")) {
+FlowEngine.Token target = FlowEngine.findLiveCancel(nativeScreen());
+gesture(decision, target != null ? target : decision.target, expected);
+} else  if (decision.key.equals("exit_live")) {
             FlowEngine.Screen fresh = nativeScreen();
             FlowEngine.Token target = decision.key.equals("cancel_live") ? FlowEngine.findLiveCancel(fresh) : FlowEngine.findLiveExit(fresh);
             if (target != null) { gesture(decision, target, expected); return; }
@@ -265,7 +268,7 @@ public final class HelperService extends AccessibilityService {
                     int w = image.getWidth(), h = image.getHeight();
                     boolean cancelOnly = revalidate != null && revalidate.text.equals("取消");
                     boolean fullOnly = revalidate != null && !cancelOnly;
-                    Rect band = new Rect((int) (w * .05), (int) (h * .60), (int) (w * .95), (int) (h * .83));
+                    Rect band = new Rect((int) (w * .02), (int) (h * .55), (int) (w * .98), (int) (h * .95));
                     if (cancelOnly && revalidate.y >= 0 && revalidate.y < h) { band.top = Math.max((int) (h * .40), (int) (revalidate.y - h * .05)); band.bottom = Math.min((int) (h * .88), (int) (revalidate.y + h * .05)); }
                     if (band.top >= band.bottom) { completion.accept(null); return; }
                     Bitmap stable = image;
@@ -304,7 +307,7 @@ public final class HelperService extends AccessibilityService {
                 addOcr(tokens, line.getText(), line.getBoundingBox(), crop, sx, sy);
                 for (Text.Element element : line.getElements()) {
                     String value = FlowEngine.compact(element.getText());
-                    if (value.matches("取消|关闭|[×xX✕✖]|领取奖励|立即领取|确认领取")) addOcr(tokens, value, element.getBoundingBox(), crop, sx, sy);
+                    if (value.matches("取消|取消跳转|暂不进入|关闭|[×xX✕✖]|领取奖励|立即领取|确认领取|点击使用|立即使用|去使用")) addOcr(tokens, value, element.getBoundingBox(), crop, sx, sy);
                 }
             }
             completion.accept(new FlowEngine.Screen(original.getWidth(), original.getHeight(), nativeResult.packageName, tokens));
